@@ -17,7 +17,16 @@ from Crypto.Random import get_random_bytes
 import pytz
 import requests
 from loguru import logger
-from push_util import push_wechat_webhook, format_now
+
+def get_beijing_time():
+    """获取北京时间"""
+    target_timezone = pytz.timezone('Asia/Shanghai')
+    return datetime.now().astimezone(target_timezone)
+
+
+def format_now():
+    """格式化当前时间"""
+    return get_beijing_time().strftime("%Y-%m-%d %H:%M:%S")
 
 # ase 解密
 class aes_help:
@@ -616,6 +625,43 @@ def get_run_index(state_path: Path, email: str, max_run: int) -> Optional[int]:
     return next_count
 
 
+def buildWeChatContent(title, content) -> str:
+    return f"""# {title}\n{content}"""
+
+def push_wechat_webhook(key, title, content):
+    """
+    推送企业微信通知，WebHook方式，需要注册企业微信并配置机器人到对应的推送群。然后提取对应的key
+
+    :param key: WebHook机器人的key
+    :param title: 推送标题
+    :param content: 推送内容，虽然支持markdown，但是在使用微信插件时，消息不能被完整展示，直接使用纯文本效果会更好
+    :return:
+    """
+
+    requestUrl = f"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}"
+
+    payload = {
+        "msgtype": "markdown_v2",
+        "markdown_v2": {
+            "content": buildWeChatContent(title, content)
+        }
+    }
+
+    try:
+        response = requests.post(requestUrl, json=payload)
+        if response.status_code == 200:
+            json_res = response.json()
+            if json_res.get('errcode') == 0:
+                logger.info(f"企业微信推送完毕：{json_res['errmsg']}")
+            else:
+                logger.error(f"企业微信推送失败：{json_res.get('errmsg', '未知错误')}")
+        else:
+            logger.error("企业微信推送失败")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"企业微信推送异常: {e}")
+    except Exception as e:
+        logger.error(f"企业微信推送发生未知异常: {e}")
+
 def main() -> None:
     accounts = parse_accounts()
     if not accounts:
@@ -649,6 +695,7 @@ def main() -> None:
         logger.info(f"email: {email}, steps: {steps}, ok: {ok}, msg: {msg}")
 
         if webhook_key:
+            logger.info(f"webhook_key: {webhook_key}")
             status = "成功" if ok else "失败"
             content = f"{email} 在 {format_now()} 刷新 {steps} 步数 {status}\n返回：{msg}"
             push_wechat_webhook(webhook_key, "刷步数结果", content)

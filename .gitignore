@@ -1,4 +1,4 @@
-.cache/
+# NOTE: .cache 用于 GitHub Actions cache 持久化 token/运行次数
 __pycache__/
 *.pyc
 .env

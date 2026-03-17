@@ -57,6 +57,7 @@ git push -u origin main
 
 - `MI_ACCOUNTS`：`email:password;email:password`
 - `RUN_RANGES`：例如 `1=8000-12000;2=12000-15000;3=15000-30000`
+- `WECHAT_WEBHOOK_KEY`：企业微信机器人 webhook key（可选，用于推送结果）
 
 ### 3) 运行方式
 

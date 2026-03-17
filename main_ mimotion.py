@@ -17,6 +17,7 @@ from Crypto.Random import get_random_bytes
 import pytz
 import requests
 from loguru import logger
+from push_util import push_wechat_webhook, format_now
 
 # ase 解密
 class aes_help:
@@ -628,6 +629,8 @@ def main() -> None:
     state_path = Path(os.getenv("RUN_STATE_PATH", ".cache/run_state.json"))
     max_run = max(run_ranges.keys())
 
+    webhook_key = os.getenv("WECHAT_WEBHOOK_KEY", "").strip()
+
     for email, password in accounts.items():
         run_index = get_run_index(state_path, email, max_run)
         if run_index is None:
@@ -644,6 +647,11 @@ def main() -> None:
         steps = randint(min_steps, max_steps)
         ok, msg = client.run(steps)
         logger.info(f"email: {email}, steps: {steps}, ok: {ok}, msg: {msg}")
+
+        if webhook_key:
+            status = "成功" if ok else "失败"
+            content = f"{email} 在 {format_now()} 刷新 {steps} 步数 {status}\n返回：{msg}"
+            push_wechat_webhook(webhook_key, "刷步数结果", content)
 
 
 if __name__ == "__main__":

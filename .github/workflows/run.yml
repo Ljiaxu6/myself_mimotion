@@ -28,12 +28,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: mimotion-cache-${{ github.repository }}
+          key: mimotion-cache-${{ github.repository }}-${{ github.run_id }}
+          restore-keys: |
+            mimotion-cache-${{ github.repository }}-
 
       - name: Run script
         env:
           MI_ACCOUNTS: ${{ secrets.MI_ACCOUNTS }}
           RUN_RANGES: ${{ secrets.RUN_RANGES }}
+          WECHAT_WEBHOOK_KEY: ${{ secrets.WECHAT_WEBHOOK_KEY }}
           RUN_STATE_PATH: .cache/run_state.json
           TOKEN_CACHE_PATH: .cache/token_cache.json
         run: |

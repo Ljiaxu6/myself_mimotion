@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache
-          key: mimotion-cache-${{ github.repository }}-${{ github.run_id }}
+          key: mimotion-cache-${{ github.repository }}-${{ github.ref_name }}
           restore-keys: |
             mimotion-cache-${{ github.repository }}-
 

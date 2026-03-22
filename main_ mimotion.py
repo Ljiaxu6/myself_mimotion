@@ -599,9 +599,6 @@ def main() -> None:
         raise ValueError("未设置 MI_ACCOUNTS，请在环境变量中配置账号密码")
 
     current_hour = get_beijing_hour()
-    if current_hour not in {1, 14}:
-        logger.info(f"当前北京时间 {current_hour} 点，不在计划执行时间(1点/14点)，退出")
-        return
 
     min_steps, max_steps = get_fixed_step_range(current_hour)
     logger.info(f"当前北京时间 {current_hour} 点，固定步数范围 {min_steps}-{max_steps}")

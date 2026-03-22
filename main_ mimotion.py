@@ -545,84 +545,15 @@ def parse_accounts() -> Dict[str, str]:
     return accounts
 
 
-def get_int_env(name: str, default: int) -> int:
-    value = os.getenv(name, "").strip()
-    if not value:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        raise ValueError(f"环境变量 {name} 必须是整数")
+def get_beijing_hour() -> int:
+    return datetime.now(pytz.timezone("Asia/Shanghai")).hour
 
 
-def get_beijing_date() -> str:
-    return datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y-%m-%d")
-
-
-def parse_run_ranges() -> Dict[int, Tuple[int, int]]:
-    """
-    环境变量 RUN_RANGES 格式：
-    1=8000-12000;2=12000-15000;3=15000-30000
-    """
-    raw = os.getenv("RUN_RANGES", "").strip()
-    if not raw:
-        return {
-            1: (8000, 12000),
-            2: (12000, 15000),
-            3: (15000, 30000),
-        }
-
-    ranges: Dict[int, Tuple[int, int]] = {}
-    for item in raw.split(";"):
-        item = item.strip()
-        if not item:
-            continue
-        if "=" not in item or "-" not in item:
-            raise ValueError("RUN_RANGES 格式错误，应为 1=8000-12000;2=12000-15000")
-        run_part, range_part = item.split("=", 1)
-        min_part, max_part = range_part.split("-", 1)
-        run_index = int(run_part.strip())
-        min_steps = int(min_part.strip())
-        max_steps = int(max_part.strip())
-        if min_steps <= 0 or max_steps <= 0 or min_steps > max_steps:
-            raise ValueError(f"RUN_RANGES 中 run={run_index} 的范围不正确")
-        ranges[run_index] = (min_steps, max_steps)
-
-    if not ranges:
-        raise ValueError("RUN_RANGES 为空")
-    return ranges
-
-
-def get_run_index(state_path: Path, email: str, max_run: int) -> Optional[int]:
-    today = get_beijing_date()
-    data: Dict[str, object] = {}
-    if state_path.exists():
-        try:
-            with state_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as exc:
-            logger.warning(f"读取运行状态失败: {exc}")
-
-    if data.get("date") != today:
-        data = {"date": today, "counts": {}}
-
-    counts = data.get("counts")
-    if not isinstance(counts, dict):
-        counts = {}
-
-    current = int(counts.get(email, 0))
-    if current >= max_run:
-        return None
-
-    next_count = current + 1
-    counts[email] = next_count
-    data["counts"] = counts
-
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    with state_path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-    return next_count
+def get_fixed_step_range(current_hour: int) -> Tuple[int, int]:
+    # 写死规则：12点(含)之前 10000-15000，12点之后 15000-20000
+    if current_hour <= 12:
+        return 10000, 15000
+    return 15000, 20000
 
 
 def buildWeChatContent(title, content) -> str:
@@ -667,35 +598,26 @@ def main() -> None:
     if not accounts:
         raise ValueError("未设置 MI_ACCOUNTS，请在环境变量中配置账号密码")
 
-    run_ranges = parse_run_ranges()
+    current_hour = get_beijing_hour()
+    if current_hour not in {1, 14}:
+        logger.info(f"当前北京时间 {current_hour} 点，不在计划执行时间(1点/14点)，退出")
+        return
+
+    min_steps, max_steps = get_fixed_step_range(current_hour)
+    logger.info(f"当前北京时间 {current_hour} 点，固定步数范围 {min_steps}-{max_steps}")
 
     cache_path = Path(os.getenv("TOKEN_CACHE_PATH", ".cache/token_cache.json"))
     token_cache = TokenCache(cache_path)
 
-    state_path = Path(os.getenv("RUN_STATE_PATH", ".cache/run_state.json"))
-    max_run = max(run_ranges.keys())
-
     webhook_key = os.getenv("WECHAT_WEBHOOK_KEY", "").strip()
 
     for email, password in accounts.items():
-        run_index = get_run_index(state_path, email, max_run)
-        if run_index is None:
-            logger.info(f"{email} 当天已超过最大运行次数 {max_run}，跳过")
-            continue
-
-        if run_index not in run_ranges:
-            logger.info(f"{email} 当前第 {run_index} 次运行不在 RUN_RANGES 中，跳过")
-            continue
-
-        min_steps, max_steps = run_ranges[run_index]
-        logger.info(f"{email} 当前第 {run_index} 次运行，步数范围 {min_steps}-{max_steps}")
         client = EmailStepClient(email, password, token_cache)
         steps = randint(min_steps, max_steps)
         ok, msg = client.run(steps)
-        logger.info(f"email: {email}, steps: {steps}, ok: {ok}, msg: {msg}")
+        logger.info(f"email: {email}, time:{format_now()}, steps: {steps}, ok: {ok}, msg: {msg}")
 
         if webhook_key:
-            logger.info(f"webhook_key: {webhook_key}")
             status = "成功" if ok else "失败"
             content = f"{email} 在 {format_now()} 刷新 {steps} 步数 {status}\n返回：{msg}"
             push_wechat_webhook(webhook_key, "刷步数结果", content)

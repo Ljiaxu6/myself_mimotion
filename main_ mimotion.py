@@ -560,9 +560,7 @@ def main() -> None:
         raise ValueError("未设置 MI_ACCOUNTS，请在环境变量中配置账号密码")
 
     now = get_beijing_now()
-    if not should_run_now(target_hour=6):
-        logger.info(f"当前北京时间 {now.strftime('%Y-%m-%d %H:%M:%S')}，非 06:00 时段，跳过本次运行")
-        return
+
 
     min_steps, max_steps = parse_step_range_from_env()
     logger.info(f"当前北京时间 {now.strftime('%Y-%m-%d %H:%M:%S')}，步数范围 {min_steps}-{max_steps}")

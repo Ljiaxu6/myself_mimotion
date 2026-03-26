@@ -9,7 +9,6 @@ import urllib
 import uuid
 from datetime import datetime
 import os
-from pathlib import Path
 import base64
 from random import randint
 from Crypto.Cipher import AES
@@ -419,44 +418,10 @@ class zepp_helper:
 
 
 # 邮箱登录刷步数主函数
-class TokenCache:
-    def __init__(self, path: Path):
-        self.path = path
-
-    def load(self) -> Dict[str, Dict[str, str]]:
-        if not self.path.exists():
-            return {}
-        try:
-            with self.path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-        except Exception as exc:
-            logger.warning(f"读取 token 缓存失败: {exc}")
-        return {}
-
-    def save(self, data: Dict[str, Dict[str, str]]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
-    def get(self, email: str) -> Optional[Dict[str, str]]:
-        return self.load().get(email)
-
-    def set(self, email: str, app_token: str, user_id: str) -> None:
-        data = self.load()
-        data[email] = {
-            "app_token": app_token,
-            "user_id": user_id,
-            "updated_at": datetime.utcnow().isoformat() + "Z",
-        }
-        self.save(data)
-
-
 class EmailStepClient:
     """邮箱账号登录并修改步数的简化封装。"""
 
-    def __init__(self, email: str, password: str, token_cache: TokenCache):
+    def __init__(self, email: str, password: str):
         if not email or not password:
             raise ValueError("email 或 password 不能为空")
         self.email = email
@@ -464,7 +429,6 @@ class EmailStepClient:
         self.device_id = str(uuid.uuid4())
         self.user_id: Optional[str] = None
         self.app_token: Optional[str] = None
-        self.token_cache = token_cache
 
         self.zepp_helper_object = zepp_helper()
 
@@ -484,25 +448,8 @@ class EmailStepClient:
 
         self.app_token = app_token
         self.user_id = user_id
-        self.token_cache.set(self.email, app_token, user_id)
         logger.info(f"{self.email} 登录成功 app_token: {self.app_token}, user_id: {self.user_id}")
         return True, "登录成功"
-
-    def ensure_login(self) -> Tuple[bool, str]:
-        """优先使用缓存 token；失效再登录。"""
-        cached = self.token_cache.get(self.email)
-        if cached and cached.get("app_token") and cached.get("user_id"):
-            app_token = cached["app_token"]
-            user_id = cached["user_id"]
-            ok, msg = self.zepp_helper_object.check_app_token(app_token)
-            if ok:
-                self.app_token = app_token
-                self.user_id = user_id
-                logger.info(f"{self.email} 使用缓存 token 登录")
-                return True, "使用缓存 token 登录"
-            logger.warning(f"{self.email} 缓存 token 失效，重新登录: {msg}")
-
-        return self.login()
 
     def update_steps(self, steps: int) -> Tuple[bool, str]:
         """提交步数变更。"""
@@ -519,8 +466,8 @@ class EmailStepClient:
         return ok, msg
 
     def run(self, steps: int) -> Tuple[bool, str]:
-        """登录并修改步数的一步调用。"""
-        ok, msg = self.ensure_login()
+        """每次都重新登录并修改步数。"""
+        ok, msg = self.login()
         if not ok:
             return False, msg
         return self.update_steps(steps)
@@ -545,15 +492,29 @@ def parse_accounts() -> Dict[str, str]:
     return accounts
 
 
-def get_beijing_hour() -> int:
-    return datetime.now(pytz.timezone("Asia/Shanghai")).hour
+def get_beijing_now() -> datetime:
+    return datetime.now(pytz.timezone("Asia/Shanghai"))
 
 
-def get_fixed_step_range(current_hour: int) -> Tuple[int, int]:
-    # 写死规则：12点(含)之前 10000-15000，12点之后 15000-20000
-    if current_hour <= 12:
-        return 10000, 15000
-    return 15000, 20000
+def parse_step_range_from_env() -> Tuple[int, int]:
+    raw = os.getenv("STEP_RANGE", "").strip() or "10000-15000"
+    match = re.fullmatch(r"(\d+)\s*[-:,]\s*(\d+)", raw)
+    if not match:
+        raise ValueError("STEP_RANGE 格式错误，应为 min-max，例如 10000-15000")
+
+    min_steps = int(match.group(1))
+    max_steps = int(match.group(2))
+    if min_steps <= 0 or max_steps <= 0:
+        raise ValueError("STEP_RANGE 的步数必须大于 0")
+    if min_steps > max_steps:
+        raise ValueError("STEP_RANGE 最小值不能大于最大值")
+
+    return min_steps, max_steps
+
+
+def should_run_now(target_hour: int = 6) -> bool:
+    now = get_beijing_now()
+    return now.hour == target_hour
 
 
 def buildWeChatContent(title, content) -> str:
@@ -598,18 +559,18 @@ def main() -> None:
     if not accounts:
         raise ValueError("未设置 MI_ACCOUNTS，请在环境变量中配置账号密码")
 
-    current_hour = get_beijing_hour()
+    now = get_beijing_now()
+    if not should_run_now(target_hour=6):
+        logger.info(f"当前北京时间 {now.strftime('%Y-%m-%d %H:%M:%S')}，非 06:00 时段，跳过本次运行")
+        return
 
-    min_steps, max_steps = get_fixed_step_range(current_hour)
-    logger.info(f"当前北京时间 {current_hour} 点，固定步数范围 {min_steps}-{max_steps}")
-
-    cache_path = Path(os.getenv("TOKEN_CACHE_PATH", ".cache/token_cache.json"))
-    token_cache = TokenCache(cache_path)
+    min_steps, max_steps = parse_step_range_from_env()
+    logger.info(f"当前北京时间 {now.strftime('%Y-%m-%d %H:%M:%S')}，步数范围 {min_steps}-{max_steps}")
 
     webhook_key = os.getenv("WECHAT_WEBHOOK_KEY", "").strip()
 
     for email, password in accounts.items():
-        client = EmailStepClient(email, password, token_cache)
+        client = EmailStepClient(email, password)
         steps = randint(min_steps, max_steps)
         ok, msg = client.run(steps)
         logger.info(f"email: {email}, time:{format_now()}, steps: {steps}, ok: {ok}, msg: {msg}")

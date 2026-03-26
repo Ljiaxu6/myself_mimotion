@@ -2,8 +2,7 @@ name: run-mimotion
 
 on:
   schedule:
-    - cron: "0 17 * * *" # 北京时间 01:00 (UTC+8)
-    - cron: "0 6 * * *"  # 北京时间 14:00 (UTC+8)
+    - cron: "0 22 * * *" # 北京时间 06:00 (UTC+8)
   workflow_dispatch: {}
 
 jobs:
@@ -23,18 +22,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Restore cache (.cache)
-        uses: actions/cache@v4
-        with:
-          path: .cache
-          key: mimotion-cache-${{ github.repository }}-${{ github.ref_name }}
-          restore-keys: |
-            mimotion-cache-${{ github.repository }}-
-
       - name: Run script
         env:
           MI_ACCOUNTS: ${{ secrets.MI_ACCOUNTS }}
           WECHAT_WEBHOOK_KEY: ${{ secrets.WECHAT_WEBHOOK_KEY }}
-          TOKEN_CACHE_PATH: .cache/token_cache.json
+          STEP_RANGE: ${{ secrets.STEP_RANGE }}
         run: |
           python "main_ mimotion.py"

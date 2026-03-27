@@ -2,7 +2,8 @@ name: run-mimotion
 
 on:
   schedule:
-    - cron: "0 22 * * *" # 北京时间 06:00 (UTC+8)
+    - cron: "0 6 * * *" # 北京时间 06:00 (UTC+8)
+    - cron: "0 18 * * *" # 北京时间 14:00 (UTC+8)
   workflow_dispatch: {}
 
 jobs:
